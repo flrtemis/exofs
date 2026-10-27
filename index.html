@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GhostDrive — a disk made of URLs</title>
+<style>
+  :root{
+    --bg:#080c15; --panel:#0d1424; --panel2:#101a2c; --line:#1e2c46;
+    --ink:#e8f1ff; --dim:#7f93b5; --dim2:#54658a;
+    --teal:#5ad1c8; --teal-dim:#2c6b66; --amber:#f2c96b; --rose:#f08aae; --green:#7de0a2;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    background:
+      radial-gradient(1100px 500px at 12% -8%, #12253a 0%, transparent 60%),
+      radial-gradient(900px 500px at 92% 110%, #14202e 0%, transparent 55%),
+      var(--bg);
+    color:var(--ink);
+    font:14px/1.55 ui-sans-serif,-apple-system,"Segoe UI",Inter,Helvetica,Arial,sans-serif;
+    padding:22px;
+  }
+  .wrap{max-width:1120px;margin:0 auto}
+  header{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;border-bottom:1px solid var(--line);padding-bottom:16px;margin-bottom:20px}
+  h1{margin:0;font-size:22px;letter-spacing:.3px;font-weight:700}
+  h1 span{color:var(--teal)}
+  .sub{color:var(--dim);font-size:12.5px;margin-top:5px;max-width:680px}
+  .badge{font:600 10.5px/1 var(--mono);letter-spacing:.9px;color:var(--teal);border:1px solid var(--teal-dim);border-radius:999px;padding:7px 11px;white-space:nowrap}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media(max-width:880px){.grid{grid-template-columns:1fr}}
+  .card{background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--line);border-radius:14px;padding:16px 16px 18px;margin-bottom:16px}
+  .card h2{margin:0 0 4px;font-size:12px;letter-spacing:1.4px;color:var(--teal);text-transform:uppercase;font-weight:700}
+  .card p.hint{margin:0 0 12px;color:var(--dim);font-size:12px}
+  label{display:block;font-size:11px;letter-spacing:.6px;color:var(--dim);text-transform:uppercase;margin:12px 0 5px;font-weight:600}
+  input,textarea,select{width:100%;background:#0a1120;border:1px solid var(--line);color:var(--ink);border-radius:8px;padding:9px 11px;font:13px/1.4 var(--mono);outline:none}
+  select{cursor:pointer}
+  input:focus,textarea:focus,select:focus{border-color:var(--teal-dim);box-shadow:0 0 0 3px rgba(90,209,200,.08)}
+  textarea{resize:vertical;min-height:64px}
+  .row{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;align-items:center}
+  button{cursor:pointer;border-radius:9px;border:1px solid var(--line);background:#152136;color:var(--ink);padding:9px 15px;font:600 12.5px/1 inherit;transition:.15s}
+  button:hover:not(:disabled){background:#1b2b45;border-color:#2b3f61}
+  button:disabled{opacity:.42;cursor:not-allowed}
+  button.primary{background:var(--teal);border-color:var(--teal);color:#04120f}
+  button.primary:hover:not(:disabled){background:#7fe0d8;border-color:#7fe0d8}
+  button.ghost{background:transparent}
+  .drop{border:1.5px dashed #2a3d5c;border-radius:11px;padding:20px 16px;text-align:center;color:var(--dim);font-size:12.5px;transition:.15s;cursor:pointer;background:#0a1120}
+  .drop:hover,.drop.over{border-color:var(--teal);color:var(--teal);background:#0c1a22}
+  .drop b{color:var(--ink)}
+  .log{font:11.5px/1.7 var(--mono);background:#060a12;border:1px solid var(--line);border-radius:10px;padding:11px 12px;height:180px;overflow:auto;white-space:pre-wrap;color:#9fb4d8;margin-top:12px}
+  .log div{margin:0}
+  .log .ok{color:var(--green)} .log .warn{color:var(--amber)} .log .err{color:var(--rose)} .log .tl{color:var(--teal)}
+  .stat{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}
+  .stat div{flex:1 1 84px;background:#0a1120;border:1px solid var(--line);border-radius:9px;padding:9px 11px}
+  .stat b{display:block;font:700 15px/1.2 var(--mono);color:var(--teal)}
+  .stat i{font-style:normal;font-size:10px;letter-spacing:.8px;color:var(--dim2);text-transform:uppercase}
+  pre{background:#060a12;border:1px solid var(--line);border-radius:10px;padding:12px;overflow:auto;max-height:200px;font:11.5px/1.6 var(--mono);color:#a9bcd8;margin:12px 0 0}
+  .where{border:1px solid #5c4a25;background:#1b1710;border-radius:10px;padding:10px 12px;font-size:12.5px;color:#e5d3a6;margin-top:12px;line-height:1.5}
+  .where b{color:var(--amber)}
+  .where.live{border-color:#255c42;background:#0d1f18;color:#a9e8c4}
+  .where.live b{color:var(--green)}
+  .foot{color:var(--dim2);font-size:11.5px;margin-top:4px;border-top:1px solid var(--line);padding-top:14px;display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap}
+  .pill{font:700 9.5px/1 var(--mono);letter-spacing:.7px;padding:4px 7px;border-radius:5px;background:#12202f;color:var(--dim);border:1px solid var(--line)}
+  .ok-pill{color:var(--green);border-color:#255c42;background:#0d1f18}
+  a{color:var(--teal)}
+  .dl{display:none;margin-top:12px;padding:12px;border:1px solid #255c42;background:#0d1f18;border-radius:10px;font-size:13px}
+  .dl b{color:var(--green)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Ghost<span>Drive</span></h1>
+      <div class="sub">A disk made of URLs. Files are chunked into content-addressed bricks, encrypted in the browser, and pushed into a git repository as data — where they persist, versioned, for free. Nothing is installed. Nothing is kept locally.</div>
+    </div>
+    <div class="badge">CLIENT-SIDE · ZERO INSTALL · REAL REMOTE STORAGE</div>
+  </header>
+
+  <div class="grid">
+    <!-- 1. WRITE -->
+    <section class="card">
+      <h2>1 · Write — file → bricks → manifest</h2>
+      <p class="hint">4 MiB chunks · sha256 of the plaintext · AES-GCM sealed · deduped</p>
+
+      <div class="drop" id="drop">
+        <b>Drop a file</b> — or click to select.<br>
+        <span style="font-size:11.5px">Read into RAM. The local disk is never used.</span>
+        <input type="file" id="file" hidden>
+      </div>
+
+      <label for="pass">Passphrase — encrypts the bricks, never leaves this tab</label>
+      <input id="pass" type="password" placeholder="a long phrase you can retype from memory" autocomplete="off">
+
+      <div class="row">
+        <button class="primary" id="digest" disabled>Chunk + hash + seal</button>
+        <button class="ghost" id="clearBtn">Reset all</button>
+      </div>
+
+      <div class="stat">
+        <div><b id="sBricks">—</b><i>bricks</i></div>
+        <div><b id="sSize">—</b><i>sealed</i></div>
+        <div><b id="sDedup">—</b><i>unique</i></div>
+        <div><b id="sTime">—</b><i>elapsed</i></div>
+      </div>
+
+      <div class="where" id="where">
+        <b>Where this file is right now:</b> RAM, in this tab. Sealed bricks are held in memory waiting for a custodian. <b>Close the tab and they are gone</b> — a manifest is an index with no contents until step 2.
+      </div>
+
+      <div class="log" id="log"></div>
+    </section>
+
+    <!-- 2. CUSTODY -->
+    <section class="card">
+      <h2>2 · Custody — put the bricks somewhere real</h2>
+      <p class="hint">GitHub Git Data API, straight from this tab: blobs → tree → commit</p>
+
+      <label for="repo">Repository (owner/name) — must already exist</label>
+      <input id="repo" placeholder="you/exofs-vault">
+
+      <label for="token">Fine-grained token — Contents: read &amp; write, nothing else</label>
+      <input id="token" type="password" placeholder="github_pat_…" autocomplete="off">
+
+      <label for="branch">Branch</label>
+      <input id="branch" value="main">
+
+      <div class="row">
+        <button class="primary" id="push" disabled>Push bricks + manifest to git</button>
+        <button class="ghost" id="copyUrl" disabled>Copy brick URLs</button>
+      </div>
+
+      <div class="where" id="custody">
+        <b>Not pushed yet.</b> Nothing has left this machine. Filling in the repo and token above makes the push real: every brick becomes a blob in the repository, addressed by its hash, and the manifest becomes a file you can read.
+      </div>
+
+      <pre id="out">the commit receipt will appear here</pre>
+    </section>
+  </div>
+
+  <!-- 3. RESTORE -->
+  <section class="card">
+    <h2>3 · Restore — prove it, or it isn't a backup</h2>
+    <p class="hint">Fetches the manifest and every brick back out of git over plain HTTPS, verifies each hash, decrypts, reassembles — then hands you the original bytes.</p>
+
+    <div class="grid" style="grid-template-columns:1fr 1fr 1fr;gap:12px">
+      <div>
+        <label for="rName">Manifest path in repo</label>
+        <input id="rName" placeholder="manifests/photo.jpg.json">
+      </div>
+      <div>
+        <label for="rRef">Commit / branch</label>
+        <input id="rRef" value="main">
+      </div>
+      <div>
+        <label for="rPass">Passphrase</label>
+        <input id="rPass" type="password" placeholder="same phrase as step 1" autocomplete="off">
+      </div>
+    </div>
+
+    <div class="row">
+      <button class="primary" id="restore" disabled>Restore file from the fabric</button>
+      <span style="color:var(--dim2);font-size:11.5px">uses the repo + token from step 2</span>
+    </div>
+
+    <div class="dl" id="dl"></div>
+    <div class="log" id="rlog"></div>
+  </section>
+
+  <div class="foot">
+    <div>Bricks: <span class="pill">4 MiB</span> <span class="pill">sha256 = plaintext hash</span> <span class="pill">AES-GCM</span> <span class="pill ok-pill">dedupes by content</span></div>
+    <div>Rule of the new world: <b style="color:var(--teal)">a save is a round-trip.</b> If nothing acknowledged it, it did not happen.</div>
+  </div>
+</div>
+
+<script>
+(() => {
+  "use strict";
+  const BRICK = 4 * 1024 * 1024;
+  const $ = id => document.getElementById(id);
+  const enc = new TextEncoder();
+
+  const mkLog = elId => msg => {
+    const el = $(elId), d = document.createElement("div");
+    if (msg.cls) d.className = msg.cls;
+    d.textContent = msg.t;
+    el.appendChild(d);
+    el.scrollTop = el.scrollHeight;
+  };
+  const log  = mkLog("log");
+  const rlog = mkLog("rlog");
+
+  const hex = buf => [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, "0")).join("");
+  const b64 = bytes => {
+    const u8 = new Uint8Array(bytes); let s = ""; const C = 0x8000;
+    for (let i = 0; i < u8.length; i += C) s += String.fromCharCode.apply(null, u8.subarray(i, i + C));
+    return btoa(s);
+  };
+  const unb64 = str => {
+    const bin = atob(str.replace(/\s/g, ""));
+    const u8 = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i);
+    return u8;
+  };
+  const human = n => n < 1024 ? n + " B" : n < 1048576 ? (n / 1024).toFixed(1) + " KB"
+                    : n < 1073741824 ? (n / 1048576).toFixed(1) + " MB" : (n / 1073741824).toFixed(2) + " GB";
+
+  // ---------- keys ----------
+  // One PBKDF2 pass yields 64 bytes: 32 for AES-GCM, 32 for an HMAC used to
+  // derive a deterministic nonce. Deterministic nonce => identical plaintext
+  // produces identical ciphertext => git's own content addressing dedupes it,
+  // and the (key, nonce) pair can never repeat across different plaintexts.
+  async function deriveKeys(passphrase, salt) {
+    const base = await crypto.subtle.importKey("raw", enc.encode(passphrase), "PBKDF2", false, ["deriveBits"]);
+    const bits = new Uint8Array(await crypto.subtle.deriveBits(
+      { name: "PBKDF2", salt, iterations: 210000, hash: "SHA-256" }, base, 512));
+    const aesKey = await crypto.subtle.importKey("raw", bits.slice(0, 32), "AES-GCM", false, ["encrypt", "decrypt"]);
+    const macKey = await crypto.subtle.importKey("raw", bits.slice(32, 64), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+    return { aesKey, macKey };
+  }
+
+  // ---------- state ----------
+  let picked = null;
+  let manifest = null;
+  const held = new Map(); // plaintext hash -> { bytes: ciphertext Uint8Array, iv: Uint8Array }
+
+  // ---------- write path ----------
+  const drop = $("drop"), fileInput = $("file"), pass = $("pass"), digestBtn = $("digest");
+
+  drop.addEventListener("click", () => fileInput.click());
+  drop.addEventListener("dragover", e => { e.preventDefault(); drop.classList.add("over"); });
+  drop.addEventListener("dragleave", () => drop.classList.remove("over"));
+  drop.addEventListener("drop", e => {
+    e.preventDefault(); drop.classList.remove("over");
+    if (e.dataTransfer.files[0]) setFile(e.dataTransfer.files[0]);
+  });
+  fileInput.addEventListener("change", () => { if (fileInput.files[0]) setFile(fileInput.files[0]); });
+
+  function setFile(f) {
+    picked = f;
+    drop.innerHTML = `<b>${f.name.replace(/[<>&]/g, "")}</b><br>
+      <span style="font-size:11.5px">${human(f.size)} · ${Math.ceil(f.size / BRICK)} bricks · held in RAM</span>`;
+    digestBtn.disabled = pass.value.length < 8;
+    log({ t: `selected ${f.name} (${human(f.size)})`, cls: "tl" });
+    if (f.size > 512 * 1024 * 1024) log({ t: "over 512 MB: a tab will struggle. Use the CI path in the playbook for files this size — the browser is a client, not the only client.", cls: "warn" });
+  }
+  pass.addEventListener("input", () => { digestBtn.disabled = !(picked && pass.value.length >= 8); });
+
+  digestBtn.addEventListener("click", async () => {
+    if (!picked || pass.value.length < 8) return;
+    digestBtn.disabled = true;
+    const t0 = performance.now();
+    manifest = null; held.clear(); $("log").innerHTML = "";
+    const salt = crypto.getRandomValues(new Uint8Array(16));
+    const { aesKey, macKey } = await deriveKeys(pass.value, salt);
+    const record = {
+      exofs: 2, name: picked.name, size: picked.size, brickSize: BRICK,
+      kdf: { alg: "PBKDF2-SHA256", iterations: 210000, salt: b64(salt) },
+      cipher: "AES-GCM-256", created: new Date().toISOString(), bricks: []
+    };
+    let offset = 0, unique = 0;
+    while (offset < picked.size) {
+      const raw = new Uint8Array(await picked.slice(offset, Math.min(offset + BRICK, picked.size)).arrayBuffer());
+      const h = hex(await crypto.subtle.digest("SHA-256", raw));
+      if (held.has(h)) {
+        log({ t: `  dedupe  ${h.slice(0, 12)}…  identical to an earlier brick, not sealed twice`, cls: "warn" });
+      } else {
+        const iv = new Uint8Array(await crypto.subtle.sign("HMAC", macKey, unb64(h))).slice(0, 12);
+        const sealed = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, aesKey, raw));
+        held.set(h, { bytes: sealed, iv });
+        unique++;
+        log({ t: `  seal    ${h.slice(0, 12)}…  ${human(raw.byteLength)} → ${human(sealed.byteLength)}`, cls: "ok" });
+      }
+      record.bricks.push({ h, bytes: raw.byteLength });
+      offset += BRICK;
+    }
+    manifest = record;
+    $("sBricks").textContent = record.bricks.length;
+    $("sSize").textContent = human(picked.size);
+    $("sDedup").textContent = unique;
+    $("sTime").textContent = Math.round(performance.now() - t0) + "ms";
+    $("rName").value = `manifests/${picked.name.replace(/[^\w.\-]+/g, "_")}.json`;
+    log({ t: `manifest: ${record.bricks.length} bricks, ${unique} unique, ${JSON.stringify(record).length} bytes of JSON.`, cls: "tl" });
+    log({ t: "the index is ready; the bricks are still only in RAM. step 2 moves them.", cls: "warn" });
+    syncPush(); syncRestore();
+    digestBtn.disabled = false;
+  });
+
+  $("clearBtn").addEventListener("click", () => {
+    picked = null; manifest = null; held.clear();
+    fileInput.value = ""; pass.value = ""; $("rPass").value = "";
+    $("log").innerHTML = ""; $("rlog").innerHTML = "";
+    $("out").textContent = "the commit receipt will appear here";
+    $("dl").style.display = "none";
+    drop.innerHTML = `<b>Drop a file</b> — or click to select.<br><span style="font-size:11.5px">Read into RAM. The local disk is never used.</span>`;
+    ["sBricks", "sSize", "sDedup", "sTime"].forEach(k => $(k).textContent = "—");
+    digestBtn.disabled = true; syncPush(); syncRestore();
+  });
+
+  // ---------- git plumbing ----------
+  const repoIn = $("repo"), tokenIn = $("token"), branchIn = $("branch");
+
+  async function gh(path, init) {
+    const res = await fetch(`https://api.github.com${path}`, {
+      ...init,
+      headers: {
+        Accept: "application/vnd.github+json",
+        Authorization: `Bearer ${tokenIn.value.trim()}`,
+        "X-GitHub-Api-Version": "2022-11-28",
+        "Content-Type": "application/json",
+        ...(init && init.headers ? init.headers : {})
+      }
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(`${res.status} ${body.message || res.statusText}`);
+    return body;
+  }
+
+  function syncPush() {
+    $("push").disabled = !(manifest && repoIn.value.includes("/") && tokenIn.value.length > 20);
+    $("copyUrl").disabled = !manifest;
+  }
+  [repoIn, tokenIn, branchIn].forEach(el => el.addEventListener("input", syncPush));
+
+  $("push").addEventListener("click", async () => {
+    if (!manifest) return;
+    const btn = $("push"); btn.disabled = true;
+    const [owner, name] = repoIn.value.trim().split("/");
+    const branch = branchIn.value.trim() || "main";
+    try {
+      // 1. where is HEAD?
+      log({ t: `→ reading head of ${branch} …`, cls: "tl" });
+      const ref = await gh(`/repos/${owner}/${name}/git/ref/heads/${branch}`);
+      const headSha = ref.object.sha;
+      const headCommit = await gh(`/repos/${owner}/${name}/git/commits/${headSha}`);
+      const baseTree = headCommit.tree.sha;
+
+      // 2. create one blob per unique brick (git dedupes by content for free)
+      const tree = [];
+      const hashes = [...new Set(manifest.bricks.map(b => b.h))];
+      log({ t: `→ uploading ${hashes.length} brick(s) as git blobs …`, cls: "tl" });
+      for (let i = 0; i < hashes.length; i++) {
+        const h = hashes[i];
+        const brick = held.get(h);
+        if (!brick) throw new Error(`brick ${h.slice(0, 12)} is not held in memory — re-run step 1`);
+        const blob = await gh(`/repos/${owner}/${name}/git/blobs`, {
+          method: "POST",
+          body: JSON.stringify({ content: b64(brick.bytes), encoding: "base64" })
+        });
+        tree.push({ path: `bricks/${h.slice(0, 2)}/${h}`, mode: "100644", type: "blob", sha: blob.sha });
+        log({ t: `  blob    ${h.slice(0, 12)}…  → ${blob.sha.slice(0, 10)}…  (${human(brick.bytes.length)})`, cls: "ok" });
+      }
+
+      // 3. the manifest itself becomes a file in the same commit
+      const manifestPath = `manifests/${manifest.name.replace(/[^\w.\-]+/g, "_")}.json`;
+      const manBlob = await gh(`/repos/${owner}/${name}/git/blobs`, {
+        method: "POST",
+        body: JSON.stringify({ content: b64(enc.encode(JSON.stringify(manifest, null, 2))), encoding: "base64" })
+      });
+      tree.push({ path: manifestPath, mode: "100644", type: "blob", sha: manBlob.sha });
+
+      // 4. tree → commit → move the branch
+      log({ t: "→ creating tree …", cls: "tl" });
+      const newTree = await gh(`/repos/${owner}/${name}/git/trees`, {
+        method: "POST", body: JSON.stringify({ base_tree: baseTree, tree })
+      });
+      log({ t: "→ creating commit …", cls: "tl" });
+      const commit = await gh(`/repos/${owner}/${name}/git/commits`, {
+        method: "POST",
+        body: JSON.stringify({
+          message: `exofs: ${manifest.name} — ${manifest.bricks.length} bricks, ${human(manifest.size)} (encrypted)`,
+          tree: newTree.sha, parents: [headSha]
+        })
+      });
+      log({ t: `→ moving ${branch} …`, cls: "tl" });
+      await gh(`/repos/${owner}/${name}/git/refs/heads/${branch}`, {
+        method: "PATCH", body: JSON.stringify({ sha: commit.sha, force: false })
+      });
+
+      const short = commit.sha.slice(0, 7);
+      log({ t: `✓ COMMITTED ${short} — the file is now somewhere real, and versioned.`, cls: "ok" });
+      ["IMMUTABLE URLS (pin these, not the branch):",
+       `  manifest   https://raw.githubusercontent.com/${owner}/${name}/${commit.sha}/${manifestPath}`,
+       `  CDN form   https://cdn.jsdelivr.net/gh/${owner}/${name}@${commit.sha}/${manifestPath}`,
+       `  brick      https://raw.githubusercontent.com/${owner}/${name}/${commit.sha}/bricks/<ab>/<hash>`
+      ].forEach(t => log({ t, cls: "tl" }));
+
+      $("where").className = "where live";
+      $("where").innerHTML = `<b>Where this file is now:</b> in the repository <b>${repoIn.value}</b> at commit <b>${short}</b> — ${manifest.bricks.length} encrypted bricks plus the manifest. It will still be there tomorrow, on a machine that is not yours. The plaintext never left this tab.`;
+      $("custody").className = "where live";
+      $("custody").innerHTML = `<b>Pushed.</b> Commit <b>${commit.sha.slice(0, 10)}</b> on <b>${branch}</b>. Every brick is a git object addressed by its own hash, so pushing the same file twice costs a request but no storage.`;
+      $("rRef").value = commit.sha;
+      $("out").textContent = JSON.stringify({
+        repo: `${owner}/${name}`, branch, commit: commit.sha, tree: newTree.sha,
+        manifest: manifestPath, bricks: manifest.bricks.length,
+        bytes_uploaded: [...held.values()].reduce((a, b) => a + b.bytes.length, 0)
+      }, null, 2);
+      syncRestore();
+    } catch (err) {
+      log({ t: `✗ ${err.message}`, cls: "err" });
+      log({ t: "  common causes: token lacks Contents:write · repo doesn't exist yet · branch name wrong · no initial commit on that branch", cls: "warn" });
+    } finally {
+      syncPush();
+    }
+  });
+
+  $("copyUrl").addEventListener("click", async () => {
+    if (!manifest) return;
+    const lines = manifest.bricks
+      .map(b => `https://raw.githubusercontent.com/<owner>/<repo>/<commit>/bricks/${b.h.slice(0, 2)}/${b.h}`)
+      .join("\n");
+    try { await navigator.clipboard.writeText(lines); log({ t: `✓ copied ${manifest.bricks.length} brick URLs`, cls: "ok" }); }
+    catch { $("out").textContent = lines; log({ t: "clipboard blocked — URLs written below", cls: "warn" }); }
+  });
+
+  // ---------- restore path ----------
+  const rName = $("rName"), rRef = $("rRef"), rPass = $("rPass");
+  function syncRestore() {
+    $("restore").disabled = !(repoIn.value.includes("/") && rName.value.trim() && rPass.value.length >= 8);
+  }
+  [rName, rRef, rPass, repoIn, tokenIn].forEach(el => el.addEventListener("input", syncRestore));
+
+  $("restore").addEventListener("click", async () => {
+    const btn = $("restore"); btn.disabled = true;
+    $("rlog").innerHTML = ""; $("dl").style.display = "none";
+    const [owner, name] = repoIn.value.trim().split("/");
+    const ref = rRef.value.trim() || "main";
+    try {
+      log({ t: "restore: reading manifest …", cls: "tl" });
+      rlog({ t: `→ ${ref.slice(0, 12)} · ${rName.value}`, cls: "tl" });
+      const res = await fetch(
+        `https://raw.githubusercontent.com/${owner}/${name}/${ref}/${rName.value.trim()}`,
+        tokenIn.value ? { headers: { Authorization: `Bearer ${tokenIn.value.trim()}` } } : {});
+      if (!res.ok) throw new Error(`manifest fetch failed: ${res.status}`);
+      const man = await res.json();
+      rlog({ t: `  ${man.name} · ${human(man.size)} · ${man.bricks.length} bricks · ${man.cipher}`, cls: "ok" });
+
+      const salt = unb64(man.kdf.salt);
+      const { aesKey, macKey } = await deriveKeys(rPass.value, salt);   // derived once, reused per brick
+      const parts = [];
+      for (let i = 0; i < man.bricks.length; i++) {
+        const b = man.bricks[i];
+        const url = `https://raw.githubusercontent.com/${owner}/${name}/${ref}/bricks/${b.h.slice(0, 2)}/${b.h}`;
+        const br = await fetch(url, tokenIn.value ? { headers: { Authorization: `Bearer ${tokenIn.value.trim()}` } } : {});
+        if (!br.ok) throw new Error(`brick ${i} fetch failed: ${br.status}`);
+        const sealed = new Uint8Array(await br.arrayBuffer());
+        const iv = new Uint8Array(await crypto.subtle.sign("HMAC", macKey, unb64(b.h))).slice(0, 12);
+        const raw = new Uint8Array(await crypto.subtle.decrypt({ name: "AES-GCM", iv }, aesKey, sealed));
+        const h2 = hex(await crypto.subtle.digest("SHA-256", raw));
+        if (h2 !== b.h) throw new Error(`brick ${i} hash mismatch — refused to assemble corrupted data`);
+        parts.push(raw);
+        rlog({ t: `  brick ${i + 1}/${man.bricks.length}  ${b.h.slice(0, 12)}…  fetched, decrypted, hash verified`, cls: "ok" });
+      }
+      const total = parts.reduce((a, p) => a + p.length, 0);
+      if (total !== man.size) throw new Error(`size mismatch: got ${total}, expected ${man.size}`);
+      const blob = new Blob(parts, { type: "application/octet-stream" });
+      const url = URL.createObjectURL(blob);
+      $("dl").style.display = "block";
+      $("dl").innerHTML = `<b>Restored.</b> ${man.name} · ${human(man.size)} · every brick hash verified.<br>
+        <a href="${url}" download="${man.name.replace(/["<>&]/g, "")}">↓ download the reassembled file</a>
+        <span style="color:#68806f"> — this download is the one moment the bytes touch your disk, and only because you asked.</span>`;
+      rlog({ t: `✓ round trip complete: ${total} bytes, ${man.bricks.length}/${man.bricks.length} bricks verified.`, cls: "ok" });
+      rlog({ t: "that is the whole proof. the file lived nowhere on your machine for its entire existence.", cls: "tl" });
+    } catch (err) {
+      rlog({ t: `✗ ${err.message}`, cls: "err" });
+      rlog({ t: "  wrong passphrase is the usual cause (AES-GCM fails cleanly rather than returning garbage).", cls: "warn" });
+    } finally {
+      syncRestore();
+    }
+  });
+
+  log({ t: "ghostdrive ready.", cls: "tl" });
+  log({ t: "nothing is written to disk by this page. not even a cache.", cls: "warn" });
+})();
+</script>
+<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a51504c6cf2357d1',t:'MTc5MzEzODg5OQ=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script><script type="module" src="https://static.cloudflareinsights.com/beacon.min.js/vce701823e78c4301a35b7e07294d87301792088814092" integrity="sha512-UKNk8GbxkABxKcXYuLkO16EleLGUkcvJWtpSNmExE0Too3ZaFAxTscNWEc1OdAv5/BikHawapSCaiD2XCmp+Bw==" data-cf-beacon='{"version":"2024.11.0","token":"1954b47c125f43f8b4338b3c4f804e4f","spa":2}' crossorigin="anonymous"></script>
+</body>
+</html>
