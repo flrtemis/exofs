@@ -1,0 +1,141 @@
+name: exofs-mirror
+
+# The triad, automated. Public repo => standard runners are free and unlimited,
+# so this is the "cloud computer" that keeps the fabric healthy without you.
+#
+# Secrets required (Settings > Secrets > Actions):
+#   R2_ENDPOINT, R2_KEY, R2_SECRET, R2_BUCKET
+#   HF_TOKEN, HF_REPO            (a *dataset* repo used as the third custodian)
+#
+# Repo layout it expects:
+#   bricks/<ab>/<sha256>         encrypted 4 MiB bricks, content addressed
+#   manifests/<name>.json        {name,size,bricks:[{h,bytes}],...}
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "0 */6 * * *"        # every 6 hours: self-heal, even if nobody pushes
+  workflow_dispatch:
+
+concurrency:
+  group: exofs-mirror
+  cancel-in-progress: false
+
+permissions:
+  contents: write                # to commit the integrity report
+
+jobs:
+  verify-and-mirror:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350         # hard job cap is 6h; stay under it
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify every brick against its hash
+        id: verify
+        run: |
+          python3 - <<'PY'
+          import json, hashlib, os, sys
+          bad, ok = [], 0
+          for root, _, files in os.walk("manifests"):
+              for f in files:
+                  if not f.endswith(".json"):
+                      continue
+                  m = json.load(open(os.path.join(root, f)))
+                  for b in m.get("bricks", []):
+                      h = b["h"] if isinstance(b, dict) else b
+                      p = os.path.join("bricks", h[:2], h)
+                      if not os.path.exists(p):
+                          bad.append(("MISSING", h)); continue
+                      if hashlib.sha256(open(p, "rb").read()).hexdigest() != h:
+                          bad.append(("CORRUPT", h)); continue
+                      ok += 1
+          for kind, h in bad:
+              print(f"{kind} {h}")
+          print(f"verified={ok} gaps={len(bad)}")
+          with open("integrity.txt", "w") as fh:
+              fh.write(f"verified={ok} gaps={len(bad)}\n")
+              for kind, h in bad:
+                  fh.write(f"{kind} {h}\n")
+          sys.exit(1 if bad else 0)   # fail loudly: an unverified backup is a hypothesis
+          PY
+
+      - name: Mirror bricks to R2 (custodian #2)
+        if: always()
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET }}
+        run: |
+          if [ -d bricks ]; then
+            aws s3 sync bricks "s3://${{ secrets.R2_BUCKET }}" \
+              --endpoint-url "${{ secrets.R2_ENDPOINT }}" --size-only
+          fi
+
+      - name: Mirror manifests to Hugging Face (custodian #3)
+        if: always()
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_REPO: ${{ secrets.HF_REPO }}
+        run: |
+          pip install -q "huggingface_hub>=0.24"
+          python3 - <<'PY'
+          import os
+          from huggingface_hub import HfApi
+          api = HfApi(token=os.environ["HF_TOKEN"])
+          for folder, path_in_repo in (("manifests", "exofs/manifests"), ("bricks", "exofs/bricks")):
+              if os.path.isdir(folder):
+                  api.upload_folder(folder_path=folder, repo_id=os.environ["HF_REPO"],
+                                    repo_type="dataset", path_in_repo=path_in_repo,
+                                    commit_message=f"exofs mirror: {folder}")
+          print("hf mirror ok")
+          PY
+
+      - name: Restore drill — fetch sample bricks from the mirror, re-hash, prove it
+        if: always()
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_KEY }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET }}
+        run: |
+          python3 - <<'PY'
+          import json, os, hashlib, subprocess, glob, tempfile, random
+          manifests = glob.glob("manifests/*.json")
+          if not manifests:
+              print("drill: no manifests, skipped"); raise SystemExit(0)
+          bricks = []
+          for mp in manifests:
+              bricks += [b["h"] if isinstance(b, dict) else b
+                         for b in json.load(open(mp)).get("bricks", [])]
+          if not bricks:
+              print("drill: no bricks, skipped"); raise SystemExit(0)
+          sample = random.sample(bricks, min(3, len(bricks)))
+          d = tempfile.mkdtemp()
+          passed = 0
+          for h in sample:
+              key = f"bricks/{h[:2]}/{h}"
+              dest = os.path.join(d, h)
+              r = subprocess.run(["aws", "s3", "cp", f"s3://${{ secrets.R2_BUCKET }}/{key}", dest,
+                                  "--endpoint-url", "${{ secrets.R2_ENDPOINT }}",
+                                  "--only-show-errors"], capture_output=True, text=True)
+              if r.returncode != 0:
+                  print("DRILL FAIL fetch", h, r.stderr[:200]); continue
+              if hashlib.sha256(open(dest, "rb").read()).hexdigest() == h:
+                  passed += 1
+              else:
+                  print("DRILL FAIL hash", h)
+          print(f"drill: {passed}/{len(sample)} bricks restored from mirror and verified")
+          raise SystemExit(0 if passed == len(sample) else 1)
+          PY
+
+      - name: Publish integrity report
+        if: always()
+        run: |
+          mkdir -p reports
+          cp integrity.txt "reports/$(date -u +%Y-%m-%dT%H%MZ).txt" 2>/dev/null || true
+          git config user.name  "exofs-bot"
+          git config user.email "exofs-bot@users.noreply.github.com"
+          git add reports || true
+          git diff --cached --quiet || git commit -m "exofs: integrity report $(date -u +%FT%TZ)"
+          git push || true
